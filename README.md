@@ -142,14 +142,16 @@ python -m pytest tests/ -v
 
 ## Screenshots
 
-*(Add screenshots of each page here before submission — see `documentation/screenshots/`)*
+Screenshots of the main application pages are included in:
 
-- `home.png`
-- `live_matches.png`
-- `top_player_stats.png`
-- `sql_analytics.png`
-- `crud_operations.png`
+documentation/screenshots/
 
-## License
+The following screenshots can be added:
 
-Educational project — built as a mentor-guided learning exercise.
+home.png
+live_matches.png
+top_player_stats.png
+sql_analytics.png
+crud_operations.png
+
+
