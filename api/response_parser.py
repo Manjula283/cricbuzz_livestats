@@ -13,6 +13,30 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# The matches table's match_format CHECK constraint only allows
+# these three exact values. The live API sends many variant labels
+# (T20, IT20, TEST, List A, T10, The Hundred, etc.) that would
+# otherwise violate that constraint and crash the INSERT.
+_FORMAT_MAP = {
+    "TEST": "Test",
+    "ODI": "ODI",
+    "T20": "T20I",
+    "T20I": "T20I",
+    "IT20": "T20I",
+}
+
+
+def _normalize_match_format(raw_format: str) -> str:
+    """
+    Maps whatever format string the API returns onto one of the
+    three values allowed by the DB schema. Anything unrecognized
+    (T10, The Hundred, List A, practice/warm-up matches, etc.)
+    falls back to 'T20I' as the closest/most common live format,
+    rather than crashing the whole page.
+    """
+    key = (raw_format or "").strip().upper()
+    return _FORMAT_MAP.get(key, "T20I")
+
 
 def parse_live_matches(raw_json: dict) -> list[dict]:
     """
@@ -57,7 +81,7 @@ def parse_live_matches(raw_json: dict) -> list[dict]:
                     "series_id": series_id,
                     "series_name": series_name,
                     "match_desc": match_info.get("matchDesc", ""),
-                    "match_format": match_info.get("matchFormat", ""),
+                    "match_format": _normalize_match_format(match_info.get("matchFormat", "")),
                     "start_date": match_info.get("startDate", ""),
                     "team1": team1_info.get("teamName", "Unknown"),
                     "team2": team2_info.get("teamName", "Unknown"),
