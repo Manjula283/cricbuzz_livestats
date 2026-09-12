@@ -8,9 +8,12 @@ import streamlit as st
 import pandas as pd
 
 from services.match_service import get_live_matches
+from utils.db_guard import require_database_ready
 
 st.set_page_config(page_title="Live Matches", page_icon="🔴", layout="wide")
 st.title("🔴 Live Matches")
+
+require_database_ready()
 
 st.caption(
     "Fetches live match data from the Cricbuzz API and saves a snapshot "
