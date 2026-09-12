@@ -7,6 +7,7 @@ call simple functions like get_live_matches() without knowing HOW
 the data was fetched or stored.
 """
 import logging
+import sqlite3
 
 from api.cricbuzz_client import CricbuzzClient
 from api.response_parser import parse_live_matches
@@ -21,38 +22,64 @@ def get_or_create_team(cursor, team_name: str, country: str = None) -> int:
     Looks up a team by name; inserts it if it doesn't exist yet.
     Returns the team_id either way. This is the standard "get-or-create"
     pattern for reconciling external API data with our own primary keys.
+
+    team_name has a UNIQUE constraint, so if two calls race (e.g. the
+    same team appears twice in one batch, or Streamlit reruns overlap),
+    the INSERT can fail even though the SELECT found nothing a moment
+    earlier. We catch that and re-SELECT instead of crashing.
     """
     cursor.execute("SELECT team_id FROM teams WHERE team_name = ?", (team_name,))
     row = cursor.fetchone()
     if row:
         return row["team_id"]
 
-    cursor.execute(
-        "INSERT INTO teams (team_name, country) VALUES (?, ?)",
-        (team_name, country or team_name),
-    )
-    return cursor.lastrowid
+    try:
+        cursor.execute(
+            "INSERT INTO teams (team_name, country) VALUES (?, ?)",
+            (team_name, country or team_name),
+        )
+        return cursor.lastrowid
+    except sqlite3.IntegrityError:
+        # Someone else inserted this team name between our SELECT and INSERT.
+        cursor.execute("SELECT team_id FROM teams WHERE team_name = ?", (team_name,))
+        row = cursor.fetchone()
+        if row:
+            return row["team_id"]
+        raise  # genuinely unexpected — re-raise so it's not silently swallowed
 
 
 def get_or_create_venue(cursor, venue_name: str, city: str = "") -> int:
+    """
+    Same get-or-create pattern as teams. venue_name has no UNIQUE
+    constraint in the current schema, so this can't hit the same
+    race today — but the guard is here in case that changes later.
+    """
     cursor.execute("SELECT venue_id FROM venues WHERE venue_name = ?", (venue_name,))
     row = cursor.fetchone()
     if row:
         return row["venue_id"]
 
-    cursor.execute(
-        "INSERT INTO venues (venue_name, city, country, capacity) VALUES (?, ?, ?, ?)",
-        (venue_name, city, "", None),
-    )
-    return cursor.lastrowid
+    try:
+        cursor.execute(
+            "INSERT INTO venues (venue_name, city, country, capacity) VALUES (?, ?, ?, ?)",
+            (venue_name, city, "", None),
+        )
+        return cursor.lastrowid
+    except sqlite3.IntegrityError:
+        cursor.execute("SELECT venue_id FROM venues WHERE venue_name = ?", (venue_name,))
+        row = cursor.fetchone()
+        if row:
+            return row["venue_id"]
+        raise
 
 
 def save_live_matches(parsed_matches: list[dict]) -> int:
     """
     Saves parsed live matches into the matches table.
-    Deduplicates on (team1_id, team2_id, match_date) so repeated polling
-    of the live endpoint doesn't create duplicate rows every refresh.
-    Returns count of NEW matches inserted (existing ones are skipped).
+    Deduplicates on (team1_id, team2_id, match_description) so repeated
+    polling of the live endpoint doesn't create duplicate rows every
+    refresh. Returns count of NEW matches inserted (existing ones are
+    skipped).
     """
     inserted_count = 0
     with get_db_cursor(commit=True) as cursor:
